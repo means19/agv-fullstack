@@ -1,3 +1,4 @@
+import React from "react";
 import {
   Select,
   SelectContent,
@@ -19,16 +20,19 @@ export function AlgorithmSelect({
 }: AlgorithmSelectProps) {
   return (
     <Select
-      onValueChange={onAlgorithmChange} // Pass the selected algorithm to the parent
-      defaultValue={selectedAlgorithm} // Default value
+      value={selectedAlgorithm}
+      onValueChange={onAlgorithmChange}
     >
-      <SelectTrigger>
+      <SelectTrigger className="w-full">
         <SelectValue placeholder="Select Algorithm" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="z-50">
         <SelectGroup>
           <SelectLabel>Algorithms</SelectLabel>
           <SelectItem value="dijkstra">Dijkstra</SelectItem>
+          <SelectItem value="greedy">Greedy Distance</SelectItem>
+          <SelectItem value="hill_climbing">Hill Climbing</SelectItem>
+          <SelectItem value="pso_ga">Hybrid PSO-GA</SelectItem>
         </SelectGroup>
       </SelectContent>
     </Select>

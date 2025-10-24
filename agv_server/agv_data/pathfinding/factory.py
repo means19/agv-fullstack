@@ -5,14 +5,12 @@ Factory class for creating pathfinding algorithm instances.
 from .dijkstra import Dijkstra
 from .greedy import GreedyDistance
 from .hill_climbing import HillClimbing
+from .pso_ga import PSO_GA  
 
 
 class PathfindingFactory:
     """
     Factory class to create pathfinding algorithm instances.
-
-    This factory pattern allows for easily switching between different
-    pathfinding algorithms while maintaining a consistent interface.
     """
 
     @staticmethod
@@ -21,7 +19,7 @@ class PathfindingFactory:
         Get an instance of the specified pathfinding algorithm.
 
         Args:
-            algorithm_name (str): The name of the algorithm ("dijkstra", "greedy", "hill_climbing").
+            algorithm_name (str): The name of the algorithm.
             nodes (list): List of all nodes in the graph.
             connections (list): List of connections between nodes.
 
@@ -35,6 +33,7 @@ class PathfindingFactory:
             "dijkstra": Dijkstra,
             "greedy": GreedyDistance,
             "hill_climbing": HillClimbing,
+            "pso_ga": PSO_GA,  
         }
 
         if algorithm_name in algorithms:
@@ -45,4 +44,4 @@ class PathfindingFactory:
     @staticmethod
     def get_available_algorithms():
         """Get list of available algorithm names."""
-        return ["dijkstra", "greedy", "hill_climbing"]
+        return ["dijkstra", "greedy", "hill_climbing", "pso_ga"]  

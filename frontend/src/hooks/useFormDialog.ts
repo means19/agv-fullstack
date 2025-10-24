@@ -4,6 +4,7 @@ import {
   type Resolver,
   type FieldError,
   type DefaultValues,
+  type FieldErrors,
 } from "react-hook-form";
 import { z } from "zod";
 
@@ -36,7 +37,7 @@ export function useFormDialog<T extends Record<string, unknown>>({
       };
     } catch (error) {
       if (error instanceof z.ZodError) {
-        const errors = error.errors.reduce<Record<string, FieldError>>(
+        const errors = error.errors.reduce<FieldErrors<T>>(
           (acc, curr) => {
             const path = curr.path.join(".");
             return {
@@ -44,16 +45,16 @@ export function useFormDialog<T extends Record<string, unknown>>({
               [path]: { message: curr.message, type: "validation" },
             };
           },
-          {},
+          {} as FieldErrors<T>,
         );
         return {
-          values: {} as T,
+          values: {} as Record<string, never>,
           errors,
         };
       }
       return {
-        values: {} as T,
-        errors: { root: { type: "validation", message: "Invalid form data" } },
+        values: {} as Record<string, never>,
+        errors: { root: { type: "validation", message: "Invalid form data" } } as FieldErrors<T>,
       };
     }
   };

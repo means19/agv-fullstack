@@ -13,12 +13,13 @@ COPY requirements.txt .
 
 RUN uv pip install -r requirements.txt --system
 
+# Install dos2unix before copying files
+RUN apt-get install -y dos2unix
+
 COPY . .
 
 EXPOSE 8000
 
-# Make entry file executable
-RUN chmod +x  ./entrypoint.sh
-
-CMD ["./entrypoint.sh"]
+# Use shell to run migrations and start server
+CMD ["/bin/sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
 
