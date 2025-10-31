@@ -2,9 +2,8 @@ import { useToast } from "@/hooks/use-toast";
 import {
   useForm,
   type Resolver,
-  type FieldError,
-  type DefaultValues,
   type FieldErrors,
+  type DefaultValues,
 } from "react-hook-form";
 import { z } from "zod";
 

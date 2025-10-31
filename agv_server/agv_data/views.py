@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 import csv
 import io
 from rest_framework.parsers import MultiPartParser, FormParser
+from .apply_main_algorithms.apply_main_algorithms import process_agv_report # <-- Import hàm adapter
 
 
 def send_order_assignment_notification(order_id, agv_id, message, additional_data=None):
@@ -461,4 +462,51 @@ class CreateAGVsViaCSVView(APIView):
                     "details": traceback_str,
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        
+class GodotReportLocationView(APIView):
+    """
+    API endpoint cho Godot simulation (Digital Twin) báo cáo vị trí
+    và nhận chỉ thị tiếp theo.
+    """
+
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        agv_id = data.get("agv_id")
+        current_node = data.get("current_node")
+
+        if not agv_id or current_node is None:
+            return Response(
+                {"error": "agv_id và current_node là bắt buộc"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 1. Gọi hàm "adapter" lõi (giống hệt MQTT)
+        all_affected_agvs = process_agv_report(
+            agv_id=int(agv_id),
+            current_node=int(current_node)
+        )
+
+        # 2. Tìm AGV GỐC (Godot) để trả về phản hồi
+        this_agv = None
+        for agv in all_affected_agvs:
+            if agv.agv_id == int(agv_id):
+                this_agv = agv
+                break
+
+        # 3. Xây dựng và trả về phản hồi JSON cho Godot
+        if this_agv:
+            # Xây dựng phản hồi dựa trên 'encode_message' của bạn
+            response_dict = {
+                "motion_state": this_agv.motion_state,
+                "reserved_node": this_agv.reserved_node,
+                "direction_change": this_agv.direction_change,
+                # Thêm các trường khác nếu Godot cần
+            }
+            return Response(response_dict, status=status.HTTP_200_OK)
+        else:
+            # Trường hợp AGV không tìm thấy (đã được log bởi process_agv_report)
+            return Response(
+                {"error": f"Không tìm thấy AGV {agv_id} hoặc không có phản hồi"},
+                status=status.HTTP_404_NOT_FOUND
             )

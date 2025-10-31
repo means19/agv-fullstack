@@ -7,10 +7,8 @@ from .encode_decode_data_frames.agv_to_server_decoder import decode_message
 from .encode_decode_data_frames.server_to_agv_encoder import encode_message
 
 from .apply_main_algorithms.apply_main_algorithms import (
-    _update_agv_position,
-    _get_agv_by_id,
-    _apply_control_policy,
-    _trigger_deadlock_partner_control_policy,
+    _get_agv_by_id,  # Vẫn cần cho 'this_agv = ...'
+    process_agv_report  # <-- Import hàm adapter mới
 )
 
 MQTT_TOPIC_AGVDATA = settings.MQTT_TOPIC_AGVDATA
@@ -56,34 +54,22 @@ def handle_agv_data_message(client: mqtt.Client, message: mqtt.MQTTMessage) -> N
             return
 
         (this_agv_id, this_agv_current_node) = this_agv_data
-        this_agv = _get_agv_by_id(this_agv_id)
-        if not this_agv:
+        if not _get_agv_by_id(this_agv_id):
             return
-        # Update AGV position and path information
-        # Apply DSPA control policy to determine next action
-        _update_agv_position(agv=this_agv, current_node=this_agv_current_node)
-        initially_affected_agvs = _apply_control_policy(agv=this_agv)
-
-        # Check if any other AGVs were waiting for this AGV due to deadlock resolution
-        # and collect them to send MQTT messages
-        partner_agvs = _trigger_deadlock_partner_control_policy(
-            moved_agv_id=this_agv_id
+        # 1. Gọi hàm "adapter" lõi
+        # Nó sẽ xử lý tất cả logic và trả về MỌI AGV cần được cập nhật
+        all_affected_agvs = process_agv_report(
+            agv_id=this_agv_id,
+            current_node=this_agv_current_node
         )
 
-        # Send MQTT message to the main AGV
-        _send_mqtt_message_to_agv(client, this_agv)
-
-        # Send MQTT messages to AGVs affected by initial deadlock resolution
-        if initially_affected_agvs:
-            for affected_agv in initially_affected_agvs:
-                _send_mqtt_message_to_agv(client, affected_agv)
-
-        # Send MQTT messages to any partner AGVs that were affected by deadlock resolution
-        if partner_agvs:
-            for partner_agv in partner_agvs:
-                _send_mqtt_message_to_agv(client, partner_agv)
-
-    except Exception:
+        # 2. Gửi phản hồi MQTT đến TẤT CẢ AGV bị ảnh hưởng
+        if all_affected_agvs:
+            for agv in all_affected_agvs:
+                _send_mqtt_message_to_agv(client, agv)
+    except Exception as e:
+        # avoid silently swallowing errors; print for debugging
+        print(f"Error handling AGV data message: {e}")
         pass
 
 

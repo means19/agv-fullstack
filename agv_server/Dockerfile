@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y curl
+RUN apt-get update && apt-get install -y curl dos2unix
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
