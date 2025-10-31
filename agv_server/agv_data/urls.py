@@ -7,6 +7,7 @@ from .views import (
     BulkDeleteAGVsView,
     DispatchOrdersToAGVsView,
     ResetAGVsView,
+    GodotReportLocationView
 )
 
 urlpatterns = [
@@ -16,6 +17,7 @@ urlpatterns = [
     path("delete/<int:agv_id>/", DeleteAGVView.as_view(), name="delete_agv"),
     path("bulk-delete/", BulkDeleteAGVsView.as_view(), name="bulk_delete_agvs"),
     path("reset/", ResetAGVsView.as_view(), name="reset_agvs"),
+    path('simulation/report_location/', GodotReportLocationView.as_view(), name='godot_report_location'),
     path(
         "dispatch-orders-to-agvs/",
         DispatchOrdersToAGVsView.as_view(),

@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y curl
+RUN apt-get update && apt-get install -y curl dos2unix
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -17,8 +17,8 @@ COPY . .
 
 EXPOSE 8000
 
-# Make entry file executable
-RUN chmod +x  ./entrypoint.sh
+# Convert line endings from Windows (CRLF) to Unix (LF) and make executable
+RUN dos2unix ./entrypoint.sh && chmod +x ./entrypoint.sh
 
-CMD ["./entrypoint.sh"]
+CMD ["/bin/sh", "./entrypoint.sh"]
 

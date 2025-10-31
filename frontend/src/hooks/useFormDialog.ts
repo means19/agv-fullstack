@@ -2,7 +2,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   useForm,
   type Resolver,
-  type FieldError,
+  type FieldErrors,
   type DefaultValues,
 } from "react-hook-form";
 import { z } from "zod";
@@ -36,24 +36,24 @@ export function useFormDialog<T extends Record<string, unknown>>({
       };
     } catch (error) {
       if (error instanceof z.ZodError) {
-        const errors = error.errors.reduce<Record<string, FieldError>>(
-          (acc, curr) => {
-            const path = curr.path.join(".");
-            return {
-              ...acc,
-              [path]: { message: curr.message, type: "validation" },
+        const fieldErrors: FieldErrors<T> = {};
+        error.errors.forEach((err) => {
+          const path = err.path.join(".") as keyof T;
+          if (path) {
+            (fieldErrors as any)[path] = {
+              message: err.message,
+              type: "validation",
             };
-          },
-          {},
-        );
+          }
+        });
         return {
-          values: {} as T,
-          errors,
+          values: {} as any,
+          errors: fieldErrors,
         };
       }
       return {
-        values: {} as T,
-        errors: { root: { type: "validation", message: "Invalid form data" } },
+        values: {} as any,
+        errors: { root: { type: "validation", message: "Invalid form data" } } as FieldErrors<T>,
       };
     }
   };

@@ -128,3 +128,38 @@ def _handle_waiting_scenario(agv: Agv) -> List[Agv]:
     else:
         deadlock_resolver.reserve_current_position()
         return []
+
+def process_agv_report(agv_id: int, current_node: int) -> List[Agv]:
+    """
+    Hàm "Adapter" lõi.
+    Xử lý báo cáo vị trí từ một AGV (qua MQTT hoặc HTTP)
+    và trả về danh sách TẤT CẢ các AGV bị ảnh hưởng (cần nhận lệnh mới).
+    """
+    affected_agvs_list = []
+
+    this_agv = _get_agv_by_id(agv_id)
+    if not this_agv:
+        logger.error(f"process_agv_report: Không tìm thấy AGV {agv_id}")
+        return []
+
+    # 1. Cập nhật vị trí (Giống hệt logic MQTT)
+    _update_agv_position(agv=this_agv, current_node=current_node)
+
+    # 2. Áp dụng chính sách điều khiển (Giống hệt logic MQTT)
+    initially_affected_agvs = _apply_control_policy(agv=this_agv)
+
+    # 3. Kích hoạt AGV đối tác (Giống hệt logic MQTT)
+    partner_agvs = _trigger_deadlock_partner_control_policy(
+        moved_agv_id=agv_id
+    )
+
+    # 4. Thu thập tất cả AGV cần được gửi phản hồi
+    affected_agvs_list.append(this_agv)
+    if initially_affected_agvs:
+        affected_agvs_list.extend(initially_affected_agvs)
+    if partner_agvs:
+        affected_agvs_list.extend(partner_agvs)
+
+    # Loại bỏ các AGV trùng lặp (nếu có) và trả về
+    unique_affected_agvs = list(set(affected_agvs_list))
+    return unique_affected_agvs
