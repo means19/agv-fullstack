@@ -200,11 +200,6 @@ def test_reservation_system():
     print_section("Test Summary")
     print("✅ All tests completed successfully!")
     print("\nReservation Table System is working correctly.")
-    print("\nNext steps:")
-    print("1. Implement Sequential Single Item algorithm")
-    print("2. Integrate Exploring Ant and Intention Ant logic")
-    print("3. Implement D-MAS decision making")
-    print("4. Test with multiple AGVs in real scenarios")
     
     return True
 
