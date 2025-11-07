@@ -3,6 +3,66 @@ from django.contrib.postgres.fields import ArrayField
 from order_data.models import Order
 
 
+class ResourceAgent(models.Model):
+    """
+    Represents a resource that can be reserved in the D-MAS system:
+    Crossroad Agent (CA) or Logical Segment Agent (LSA).
+    """
+    class ResourceType(models.TextChoices):
+        CROSSROAD = 'CA', 'Crossroad Agent'
+        SEGMENT = 'LSA', 'Logical Segment Agent'
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Unique identifier, e.g., 'CA_01' or 'LSA_01_02'"
+    )
+    resource_type = models.CharField(
+        max_length=3,
+        choices=ResourceType.choices,
+        help_text="Resource type (CA or LSA)"
+    )
+
+    class Meta:
+        verbose_name = "Resource Agent"
+        verbose_name_plural = "Resource Agents"
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_resource_type_display()})"
+
+
+class Booking(models.Model):
+    """
+    Represents a reservation booking in the Reservation Table.
+    Each booking reserves a resource (CA/LSA) for a specific time slot.
+    """
+    resource = models.ForeignKey(
+        ResourceAgent,
+        on_delete=models.CASCADE,
+        related_name="bookings",
+        help_text="Reserved resource (CA/LSA)"
+    )
+    agv_id = models.BigIntegerField(
+        db_index=True,
+        help_text="AGV making the reservation"
+    )
+    start_time = models.DateTimeField(help_text="Start time of resource occupation")
+    end_time = models.DateTimeField(help_text="End time of resource release")
+
+    class Meta:
+        verbose_name = "Booking"
+        verbose_name_plural = "Bookings"
+        indexes = [
+            models.Index(fields=['resource', 'start_time']),
+            models.Index(fields=['resource', 'end_time']),
+        ]
+        ordering = ['start_time']
+
+    def __str__(self):
+        return f"AGV {self.agv_id} @ {self.resource.name} [{self.start_time} - {self.end_time}]"
+
+
 class Agv(models.Model):
     """
     Represents an AGV in the system according to the DSPA algorithm.

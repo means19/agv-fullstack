@@ -7,7 +7,13 @@ from .views import (
     BulkDeleteAGVsView,
     DispatchOrdersToAGVsView,
     ResetAGVsView,
-    GodotReportLocationView
+    GodotReportLocationView,
+    # Reservation Table views
+    QuerySlotView,
+    BookSlotView,
+    ListBookingsView,
+    CancelBookingView,
+    ListResourcesView,
 )
 
 urlpatterns = [
@@ -22,5 +28,32 @@ urlpatterns = [
         "dispatch-orders-to-agvs/",
         DispatchOrdersToAGVsView.as_view(),
         name="dispatch_orders_to_agvs",
+    ),
+    
+    # Reservation Table endpoints
+    path(
+        "reservation/resource/<int:resource_id>/query_slot/",
+        QuerySlotView.as_view(),
+        name="query_slot"
+    ),
+    path(
+        "reservation/resource/<int:resource_id>/book_slot/",
+        BookSlotView.as_view(),
+        name="book_slot"
+    ),
+    path(
+        "reservation/bookings/",
+        ListBookingsView.as_view(),
+        name="list_bookings"
+    ),
+    path(
+        "reservation/bookings/<int:booking_id>/",
+        CancelBookingView.as_view(),
+        name="cancel_booking"
+    ),
+    path(
+        "reservation/resources/",
+        ListResourcesView.as_view(),
+        name="list_resources"
     ),
 ]
