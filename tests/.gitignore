@@ -1,0 +1,12 @@
+# Test cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Test output
+test_results/
+*.log

@@ -510,3 +510,234 @@ class GodotReportLocationView(APIView):
                 {"error": f"Không tìm thấy AGV {agv_id} hoặc không có phản hồi"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+# ==================== Reservation Table API Views ====================
+
+class QuerySlotView(APIView):
+    """
+    Query the earliest available time slot for a resource.
+    
+    This endpoint is used by Exploring Ants to find when they can
+    reserve a resource (CA or LSA).
+    
+    POST /api/agvs/reservation/resource/<int:resource_id>/query_slot/
+    Body:
+    {
+        "request_start_time": "2025-11-07T15:30:00Z",
+        "duration_seconds": 15
+    }
+    """
+    
+    def post(self, request, resource_id, format=None):
+        from datetime import timedelta
+        from django.utils.dateparse import parse_datetime
+        from . import services
+        
+        try:
+            start_time_str = request.data.get('request_start_time')
+            duration_sec = int(request.data.get('duration_seconds', 0))
+            
+            if not start_time_str or duration_sec <= 0:
+                return Response(
+                    {"error": "Missing or invalid 'request_start_time' or 'duration_seconds'"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            start_time = parse_datetime(start_time_str)
+            if not start_time:
+                return Response(
+                    {"error": "Invalid 'request_start_time' format. Use ISO 8601 format."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            duration = timedelta(seconds=duration_sec)
+            
+            earliest_slot_start = services.find_earliest_available_slot(
+                resource_id=resource_id,
+                request_start_time=start_time,
+                duration=duration
+            )
+            
+            delay_seconds = (earliest_slot_start - start_time).total_seconds()
+            
+            return Response({
+                "resource_id": resource_id,
+                "earliest_available_start": earliest_slot_start.isoformat(),
+                "requested_duration_seconds": duration_sec,
+                "calculated_delay_seconds": delay_seconds
+            }, status=status.HTTP_200_OK)
+        
+        except services.ResourceNotFoundError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValueError as e:
+            return Response(
+                {"error": f"Invalid input: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class BookSlotView(APIView):
+    """
+    Create a booking for a resource (Intention Ant operation).
+    
+    POST /api/agvs/reservation/resource/<int:resource_id>/book_slot/
+    Body:
+    {
+        "agv_id": 2,
+        "request_start_time": "2025-11-07T15:30:00Z",
+        "duration_seconds": 15
+    }
+    """
+    
+    def post(self, request, resource_id, format=None):
+        from datetime import timedelta
+        from django.utils.dateparse import parse_datetime
+        from . import services
+        from .serializers import BookingSerializer
+        
+        try:
+            agv_id = request.data.get('agv_id')
+            start_time_str = request.data.get('request_start_time')
+            duration_sec = request.data.get('duration_seconds')
+            
+            if not agv_id or not start_time_str or not duration_sec:
+                return Response(
+                    {"error": "Missing required fields: 'agv_id', 'request_start_time', or 'duration_seconds'"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            agv_id = int(agv_id)
+            duration_sec = int(duration_sec)
+            
+            start_time = parse_datetime(start_time_str)
+            if not start_time:
+                return Response(
+                    {"error": "Invalid 'request_start_time' format. Use ISO 8601 format."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            duration = timedelta(seconds=duration_sec)
+            
+            # STRICT MODE: Book the EXACT slot requested (from Exploring Ant)
+            # If slot is occupied, return 409 and AGV must abort mission
+            new_booking = services.create_booking(
+                resource_id=resource_id,
+                agv_id=agv_id,
+                exact_start_time=start_time,  # Changed from requested_start_time
+                duration=duration
+            )
+            
+            serializer = BookingSerializer(new_booking)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+        except services.ResourceNotFoundError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except services.BookingConflictError as e:
+            return Response(
+                {"error": f"Booking conflict (retry recommended): {str(e)}"},
+                status=status.HTTP_409_CONFLICT
+            )
+        except ValueError as e:
+            return Response(
+                {"error": f"Invalid input: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ListBookingsView(APIView):
+    """
+    List bookings for an AGV or a resource.
+    
+    GET /api/agvs/reservation/bookings/?agv_id=<agv_id>
+    GET /api/agvs/reservation/bookings/?resource_id=<resource_id>
+    """
+    
+    def get(self, request, format=None):
+        from . import services
+        from .serializers import BookingSerializer
+        
+        agv_id = request.query_params.get('agv_id')
+        resource_id = request.query_params.get('resource_id')
+        
+        if agv_id:
+            try:
+                agv_id = int(agv_id)
+                include_past = request.query_params.get('include_past', 'false').lower() == 'true'
+                bookings = services.get_bookings_for_agv(agv_id, include_past=include_past)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid agv_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif resource_id:
+            try:
+                resource_id = int(resource_id)
+                bookings = services.get_bookings_for_resource(resource_id)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid resource_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            return Response(
+                {"error": "Must provide either 'agv_id' or 'resource_id' query parameter"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = BookingSerializer(bookings, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CancelBookingView(APIView):
+    """
+    Cancel a specific booking.
+    
+    DELETE /api/agvs/reservation/bookings/<int:booking_id>/
+    """
+    
+    def delete(self, request, booking_id, format=None):
+        from . import services
+        
+        success = services.cancel_booking(booking_id)
+        
+        if success:
+            return Response(
+                {"message": f"Booking {booking_id} cancelled successfully"},
+                status=status.HTTP_200_OK
+            )
+        else:
+            return Response(
+                {"error": f"Booking {booking_id} not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class ListResourcesView(ListAPIView):
+    """
+    List all available resources (CAs and LSAs).
+    
+    GET /api/agvs/reservation/resources/
+    """
+    from .models import ResourceAgent
+    from .serializers import ResourceAgentSerializer
+    
+    queryset = ResourceAgent.objects.all()
+    serializer_class = ResourceAgentSerializer
+
