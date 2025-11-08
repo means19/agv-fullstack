@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'agv_server'))
 
 from agv_data.agv_agent import RouteStep, DMAS_ET, _calculate_energy_travel, _calculate_energy_wait
-from agv_data.agv_agent_constants import K_ENERGY, K_TARDINESS, C_BASE, C_LOAD_COEFF, P_IDLE
+from agv_data.agv_agent_constants import K_ENERGY, K_TIME, C_BASE, C_LOAD_COEFF, P_IDLE
 
 
 def test_energy_calculations():
@@ -53,12 +53,12 @@ def test_energy_calculations():
 
 
 def test_simple_route():
-    """Test DMAS_ET with a simple route (no conflicts, no tardiness)"""
+    """Test DMAS_ET with a simple route (with task endpoint for TFT)"""
     print("\n" + "="*60)
     print("TEST 2: Simple Route (No Conflicts)")
     print("="*60)
     
-    # Create route: Resource 1 -> Resource 2 -> Resource 3
+    # Create route: Resource 1 -> Resource 2 -> Resource 3 (last is task endpoint)
     # All resources should be available immediately
     start_time = datetime.now(timezone.utc) + timedelta(hours=1)
     
@@ -82,25 +82,32 @@ def test_simple_route():
             distance_m=100.0,
             duration_sec=60.0,
             load_kg=100.0,
-            is_task_endpoint=False
+            is_task_endpoint=True  # Mark as task endpoint to track TFT
         )
     ]
     
-    cost = DMAS_ET(route_plan, start_time, agv_id="TEST_AGV_1")
+    energy, tft = DMAS_ET(route_plan, start_time, agv_id="TEST_AGV_1")
     
-    # Calculate expected cost (no delays, no tardiness)
+    # Calculate expected values
     expected_energy = (
         _calculate_energy_travel(50.0, 100.0) +
         _calculate_energy_travel(75.0, 100.0) +
         _calculate_energy_travel(100.0, 100.0)
     )
-    expected_cost = K_ENERGY * expected_energy + K_TARDINESS * 0
+    # TFT: time from start to completion of last task endpoint
+    expected_tft = 30.0 + 45.0 + 60.0  # Sum of durations
     
-    print(f"\nExpected Cost: {expected_cost:.6f}")
-    print(f"Actual Cost: {cost:.6f}")
-    print(f"Difference: {abs(expected_cost - cost):.6f}")
+    print(f"\nExpected Values:")
+    print(f"  Energy: {expected_energy:.6f} kJ")
+    print(f"  TFT: {expected_tft:.2f} seconds")
+    print(f"\nActual Values:")
+    print(f"  Energy: {energy:.6f} kJ")
+    print(f"  TFT: {tft:.2f} seconds")
+    print(f"\nDifferences:")
+    print(f"  Energy diff: {abs(expected_energy - energy):.6f} kJ")
+    print(f"  TFT diff: {abs(expected_tft - tft):.2f} seconds")
     
-    if cost != float('inf'):
+    if energy != float('inf') and tft != float('inf'):
         print("[PASS] - Route completed successfully")
     else:
         print("[FAIL] - Route returned inf")
@@ -140,9 +147,9 @@ def test_route_with_tardiness():
         )
     ]
     
-    cost = DMAS_ET(route_plan, start_time, agv_id="TEST_AGV_2")
+    energy, tft = DMAS_ET(route_plan, start_time, agv_id="TEST_AGV_2")
     
-    if cost != float('inf'):
+    if energy != float('inf') and tft != float('inf'):
         print("[PASS] - Route completed")
     else:
         print("[FAIL] - Route returned inf")
@@ -193,9 +200,9 @@ def test_varying_loads():
         )
     ]
     
-    cost = DMAS_ET(route_plan, start_time, agv_id="TEST_AGV_3")
+    energy, tft = DMAS_ET(route_plan, start_time, agv_id="TEST_AGV_3")
     
-    if cost != float('inf'):
+    if energy != float('inf') and tft != float('inf'):
         print("[PASS] - Route with varying loads completed")
     else:
         print("[FAIL] - Route returned inf")
@@ -210,9 +217,9 @@ def test_invalid_route():
     # Test empty route
     print("\nTest 5.1: Empty route")
     start_time = datetime.now(timezone.utc)
-    cost = DMAS_ET([], start_time, agv_id="TEST_EMPTY")
+    energy, tft = DMAS_ET([], start_time, agv_id="TEST_EMPTY")
     
-    if cost == float('inf'):
+    if energy == float('inf') and tft == float('inf'):
         print("[PASS] - Empty route returns inf")
     else:
         print("[FAIL] - Empty route should return inf")
@@ -229,9 +236,9 @@ def test_invalid_route():
         )
     ]
     
-    cost = DMAS_ET(route_plan, start_time, agv_id="TEST_INVALID")
+    energy, tft = DMAS_ET(route_plan, start_time, agv_id="TEST_INVALID")
     
-    if cost == float('inf'):
+    if energy == float('inf') and tft == float('inf'):
         print("[PASS] - Invalid resource returns inf")
     else:
         print("[FAIL] - Invalid resource should return inf")
@@ -245,7 +252,7 @@ def main():
     print(f"\nTest started at: {datetime.now()}")
     print("\nConfiguration:")
     print(f"  K_ENERGY = {K_ENERGY}")
-    print(f"  K_TARDINESS = {K_TARDINESS}")
+    print(f"  K_TIME = {K_TIME}")
     print(f"  C_BASE = {C_BASE} kJ/m")
     print(f"  C_LOAD_COEFF = {C_LOAD_COEFF} kJ/(kg·m)")
     print(f"  P_IDLE = {P_IDLE} W")

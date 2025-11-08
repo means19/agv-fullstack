@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Tuple, Optional
 from .agv_agent_constants import (
     K_ENERGY,
-    K_TARDINESS,
+    K_TIME,
     C_BASE,
     C_LOAD_COEFF,
     P_IDLE,
@@ -122,7 +122,7 @@ def DMAS_ET(
     route_plan: List[RouteStep],
     global_start_time: datetime,
     agv_id: str = "exploring_ant"
-) -> float:
+) -> Tuple[float, float]:
     """
     Exploring Ant (DMAS-ET) - Simulates an AGV's journey and calculates total cost.
     
@@ -130,8 +130,8 @@ def DMAS_ET(
     1. Iterates through each step in the route plan
     2. Queries the Reservation Table API for earliest available slot
     3. Calculates travel energy and wait energy
-    4. Tracks tardiness for task endpoints
-    5. Returns total cost J = K_ENERGY * energy + K_TARDINESS * tardiness
+    4. Tracks Total Flow Time (TFT)
+    5. Returns RAW costs (E, TFT) - normalization done by bidding layer
     
     Args:
         route_plan: List of RouteStep objects representing the planned route
@@ -139,19 +139,24 @@ def DMAS_ET(
         agv_id: Identifier for this exploring ant (for logging)
         
     Returns:
-        Total cost J (float). Returns float('inf') if:
+        Tuple[float, float]: (total_energy_kj, total_tft_sec)
+        Returns (float('inf'), float('inf')) if:
         - Route plan is empty
         - Any API call fails
         - Any validation fails
+        
+    Note:
+        TFT (Total Flow Time) replaced SOT (Sum of Tardiness) as the time metric.
+        TFT is always positive and measures overall performance.
     """
     if not route_plan:
         print(f"[ERROR] {agv_id}: Route plan is empty")
-        return float('inf')
+        return (float('inf'), float('inf'))
     
     # Initialize tracking variables
     current_time = global_start_time
     total_energy_kj = 0.0
-    total_tardiness_sec = 0.0
+    total_tft_sec = 0.0
     
     print(f"\n[DMAS-ET] {agv_id} starting exploration at {current_time}")
     print(f"[DMAS-ET] Route has {len(route_plan)} steps")
@@ -171,13 +176,13 @@ def DMAS_ET(
         
         if api_response is None:
             print(f"[ERROR] {agv_id}: API call failed at step {step_idx + 1}")
-            return float('inf')
+            return (float('inf'), float('inf'))
         
         # Parse the earliest available start time from API
         earliest_start_str = api_response.get('earliest_available_start')
         if not earliest_start_str:
             print(f"[ERROR] {agv_id}: Invalid API response at step {step_idx + 1}")
-            return float('inf')
+            return (float('inf'), float('inf'))
         
         earliest_start = datetime.fromisoformat(earliest_start_str)
         print(f"Desired start: {current_time}")
@@ -209,79 +214,99 @@ def DMAS_ET(
         current_time = finish_time
         print(f"Finish time: {finish_time}")
         
-        # Check tardiness if this is a task endpoint
-        if step.is_task_endpoint and step.due_date is not None:
-            if finish_time > step.due_date:
-                tardiness = (finish_time - step.due_date).total_seconds()
-                total_tardiness_sec += tardiness
-                print(f"[LATE] by {tardiness}s (due: {step.due_date})")
-            else:
-                print(f"[ON TIME] (due: {step.due_date})")
+        # Track TFT for task endpoints
+        if step.is_task_endpoint:
+            flow_time = (finish_time - global_start_time).total_seconds()
+            total_tft_sec = flow_time
+            print(f"[TASK ENDPOINT] Flow time: {flow_time:.2f}s")
+            if step.due_date is not None:
+                if finish_time > step.due_date:
+                    late_by = (finish_time - step.due_date).total_seconds()
+                    print(f"[LATE] by {late_by}s (due: {step.due_date})")
+                else:
+                    print(f"[ON TIME] (due: {step.due_date})")
     
-    # Calculate total cost
-    cost_J = K_ENERGY * total_energy_kj + K_TARDINESS * total_tardiness_sec
-    
+    # Print exploration results
     print(f"\n{'='*60}")
     print(f"[DMAS-ET] {agv_id} Exploration Complete")
     print(f"{'='*60}")
     print(f"Total Energy: {total_energy_kj:.6f} kJ")
-    print(f"Total Tardiness: {total_tardiness_sec:.2f} seconds")
-    print(f"Cost J = {K_ENERGY} * {total_energy_kj:.6f} + {K_TARDINESS} * {total_tardiness_sec:.2f}")
-    print(f"Cost J = {cost_J:.6f}")
+    print(f"Total Flow Time (TFT): {total_tft_sec:.2f} seconds")
+    print(f"\n⚠️  NOTE: Raw costs returned (E, TFT)")
+    print(f"    Normalization & J calculation done by bidding layer")
     print(f"{'='*60}\n")
     
-    return cost_J
+    # Return RAW costs (không tính J ở đây)
+    # Việc chuẩn hóa và áp dụng K_ENERGY/K_TIME
+    # sẽ do hàm BID_CALCULATION_ET bên ngoài xử lý
+    return (total_energy_kj, total_tft_sec)
 
 
 def DMAS_ET_silent(
     route_plan: List[RouteStep],
     global_start_time: datetime,
     agv_id: str = "exploring_ant"
-) -> float:
+) -> Tuple[float, float]:
     """
-    Silent version of DMAS_ET (no console output) for performance testing.
+    Silent version of DMAS_ET (no console output) for performance and bidding.
     
-    Same logic as DMAS_ET but without print statements.
+    Returns RAW costs (energy, TFT) without applying K_ENERGY/K_TIME weights.
+    This allows the bidding layer to apply dynamic normalization.
+    
+    Args:
+        route_plan: List of RouteStep objects
+        global_start_time: Start time for the journey
+        agv_id: Identifier for logging
+        
+    Returns:
+        Tuple[float, float]: (total_energy_kj, total_tft_sec)
+        Returns (inf, inf) if route is invalid or API fails
+        
+    Note:
+        TFT (Total Flow Time) = time from start to completion of last task endpoint
     """
     if not route_plan:
-        return float('inf')
+        return float('inf'), float('inf')
     
     current_time = global_start_time
     total_energy_kj = 0.0
-    total_tardiness_sec = 0.0
+    total_tft_sec = 0.0
     
     for step in route_plan:
-        api_response = _query_slot_api(
-            resource_id=step.resource_id,
-            desired_start=current_time,
-            duration_sec=step.duration_sec
-        )
+        try:
+            api_response = _query_slot_api(
+                resource_id=step.resource_id,
+                desired_start=current_time,
+                duration_sec=step.duration_sec
+            )
+            
+            if api_response is None:
+                return float('inf'), float('inf')
+            
+            earliest_start_str = api_response.get('earliest_available_start')
+            if not earliest_start_str:
+                return float('inf'), float('inf')
+            
+            earliest_start = datetime.fromisoformat(earliest_start_str)
+            
+            if earliest_start > current_time:
+                delay_sec = (earliest_start - current_time).total_seconds()
+                wait_energy = _calculate_energy_wait(delay_sec)
+                total_energy_kj += wait_energy
+                current_time = earliest_start
+            
+            travel_energy = _calculate_energy_travel(step.distance_m, step.load_kg)
+            total_energy_kj += travel_energy
+            
+            finish_time = current_time + timedelta(seconds=step.duration_sec)
+            current_time = finish_time
+            
+            # TFT: track flow time for task endpoints
+            if step.is_task_endpoint:
+                flow_time_for_this_task = (current_time - global_start_time).total_seconds()
+                total_tft_sec = flow_time_for_this_task
         
-        if api_response is None:
-            return float('inf')
-        
-        earliest_start_str = api_response.get('earliest_available_start')
-        if not earliest_start_str:
-            return float('inf')
-        
-        earliest_start = datetime.fromisoformat(earliest_start_str)
-        
-        if earliest_start > current_time:
-            delay_sec = (earliest_start - current_time).total_seconds()
-            wait_energy = _calculate_energy_wait(delay_sec)
-            total_energy_kj += wait_energy
-            current_time = earliest_start
-        
-        travel_energy = _calculate_energy_travel(step.distance_m, step.load_kg)
-        total_energy_kj += travel_energy
-        
-        finish_time = current_time + timedelta(seconds=step.duration_sec)
-        current_time = finish_time
-        
-        if step.is_task_endpoint and step.due_date is not None:
-            if finish_time > step.due_date:
-                tardiness = (finish_time - step.due_date).total_seconds()
-                total_tardiness_sec += tardiness
+        except Exception:
+            return float('inf'), float('inf')
     
-    cost_J = K_ENERGY * total_energy_kj + K_TARDINESS * total_tardiness_sec
-    return cost_J
+    return total_energy_kj, total_tft_sec
