@@ -226,3 +226,200 @@ def cancel_agv_bookings(agv_id: int, future_only: bool = True):
     
     count, _ = bookings.delete()
     return count
+
+
+# ==============================================================================
+# Map Service - Graph-based pathfinding with NetworkX
+# ==============================================================================
+
+import networkx as nx
+from typing import List, Optional, Dict, Tuple
+from dataclasses import dataclass
+
+
+@dataclass
+class RouteStep:
+    """Represents a single step in a route."""
+    node_name: str
+    resource_type: str  # CA, LSA, DEPOT, STATION
+    pos_x: int = 0
+    pos_y: int = 0
+    distance_m: float = 0.0
+    cumulative_distance_m: float = 0.0
+    travel_time_sec: float = 0.0
+    cumulative_time_sec: float = 0.0
+
+
+class MapService:
+    """
+    Singleton service for map graph management and pathfinding.
+    
+    Uses NetworkX DiGraph built from ResourceAgent data.
+    Provides ideal path calculation using Dijkstra's algorithm.
+    """
+    
+    _instance = None
+    _graph: Optional[nx.DiGraph] = None
+    _node_data: Dict[str, Dict] = {}
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(MapService, cls).__new__(cls)
+        return cls._instance
+    
+    def load_graph(self) -> bool:
+        """
+        Load the graph from ResourceAgent database.
+        
+        Builds a directed graph where:
+        - Nodes are CA, DEPOT, STATION resources
+        - Edges are LSA resources with from_ca -> to_ca relationships
+        - Only ONLINE resources are included
+        
+        Returns:
+            bool: True if graph was successfully loaded, False otherwise
+        """
+        try:
+            self._graph = nx.DiGraph()
+            self._node_data = {}
+            
+            # Load nodes (CA, DEPOT, STATION)
+            nodes = ResourceAgent.objects.filter(
+                resource_type__in=['CA', 'DEPOT', 'STATION'],
+                status='ONLINE'
+            )
+            
+            for node in nodes:
+                self._graph.add_node(node.name)
+                self._node_data[node.name] = {
+                    'resource_type': node.resource_type,
+                    'pos_x': node.pos_x,
+                    'pos_y': node.pos_y,
+                    'id': node.id
+                }
+            
+            # Load edges (LSA)
+            edges = ResourceAgent.objects.filter(
+                resource_type='LSA',
+                status='ONLINE',
+                from_ca__isnull=False,
+                to_ca__isnull=False
+            ).select_related('from_ca', 'to_ca')
+            
+            for edge in edges:
+                self._graph.add_edge(
+                    edge.from_ca.name,
+                    edge.to_ca.name,
+                    weight=edge.distance_m,
+                    distance_m=edge.distance_m,
+                    base_time_sec=edge.base_time_sec,
+                    lsa_name=edge.name,
+                    lsa_id=edge.id
+                )
+            
+            return True
+        
+        except Exception as e:
+            print(f"Error loading graph: {e}")
+            return False
+    
+    def reload_graph(self) -> bool:
+        """Reload the graph from database (call after map changes)."""
+        return self.load_graph()
+    
+    def get_ideal_path(
+        self, 
+        start_node: str, 
+        end_node: str,
+        agv_speed_m_per_sec: float = 1.0
+    ) -> Optional[List[RouteStep]]:
+        """
+        Calculate the ideal (shortest) path between two nodes using Dijkstra.
+        
+        Args:
+            start_node: Name of the starting node (e.g., "CA-01")
+            end_node: Name of the destination node (e.g., "STATION-A")
+            agv_speed_m_per_sec: AGV speed for time calculation (default 1.0 m/s)
+            
+        Returns:
+            List[RouteStep]: Sequence of route steps with distances and times
+            None: If no path exists or graph not loaded
+        """
+        if self._graph is None:
+            print("Graph not loaded. Call load_graph() first.")
+            return None
+        
+        if start_node not in self._graph:
+            print(f"Start node '{start_node}' not found in graph")
+            return None
+        
+        if end_node not in self._graph:
+            print(f"End node '{end_node}' not found in graph")
+            return None
+        
+        try:
+            # Use Dijkstra to find shortest path
+            path = nx.shortest_path(
+                self._graph, 
+                source=start_node, 
+                target=end_node, 
+                weight='weight'
+            )
+            
+            # Build RouteStep list
+            route_steps: List[RouteStep] = []
+            cumulative_distance = 0.0
+            cumulative_time = 0.0
+            
+            for i, node_name in enumerate(path):
+                node_info = self._node_data.get(node_name, {})
+                
+                # Get edge info if not the last node
+                step_distance = 0.0
+                step_time = 0.0
+                
+                if i < len(path) - 1:
+                    next_node = path[i + 1]
+                    edge_data = self._graph.get_edge_data(node_name, next_node)
+                    if edge_data:
+                        step_distance = edge_data.get('distance_m', 0.0)
+                        step_time = step_distance / agv_speed_m_per_sec if agv_speed_m_per_sec > 0 else 0.0
+                        cumulative_distance += step_distance
+                        cumulative_time += step_time
+                
+                step = RouteStep(
+                    node_name=node_name,
+                    resource_type=node_info.get('resource_type', 'UNKNOWN'),
+                    pos_x=node_info.get('pos_x', 0),
+                    pos_y=node_info.get('pos_y', 0),
+                    distance_m=step_distance,
+                    cumulative_distance_m=cumulative_distance,
+                    travel_time_sec=step_time,
+                    cumulative_time_sec=cumulative_time
+                )
+                route_steps.append(step)
+            
+            return route_steps
+        
+        except nx.NetworkXNoPath:
+            print(f"No path exists between '{start_node}' and '{end_node}'")
+            return None
+        except Exception as e:
+            print(f"Error calculating path: {e}")
+            return None
+    
+    def get_graph_stats(self) -> Dict:
+        """Get statistics about the current graph."""
+        if self._graph is None:
+            return {'error': 'Graph not loaded'}
+        
+        return {
+            'num_nodes': self._graph.number_of_nodes(),
+            'num_edges': self._graph.number_of_edges(),
+            'is_connected': nx.is_weakly_connected(self._graph),
+            'nodes': list(self._graph.nodes()),
+        }
+
+
+# Singleton instance (initialize on import)
+map_service = MapService()
