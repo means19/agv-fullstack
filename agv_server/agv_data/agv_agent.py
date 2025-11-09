@@ -115,6 +115,10 @@ def _query_slot_api(
         return response.json()
     except requests.RequestException as e:
         print(f"[ERROR] API call failed for resource {resource_id}: {e}")
+        print(f"  URL: {url}")
+        print(f"  Payload: {payload}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"  Response text: {e.response.text}")
         return None
 
 

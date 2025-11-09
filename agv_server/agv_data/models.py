@@ -118,7 +118,7 @@ class Booking(models.Model):
     def __str__(self):
         return f"AGV {self.agv_id} @ {self.resource.name} [{self.start_time} - {self.end_time}]"
 
-
+# OLD MODEL BELOW FOR AGV DATA ACCORDING TO DSPA ALGORITHM
 class Agv(models.Model):
     """
     Represents an AGV in the system according to the DSPA algorithm.

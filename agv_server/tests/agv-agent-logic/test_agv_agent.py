@@ -14,8 +14,8 @@ import sys
 import os
 from datetime import datetime, timedelta, timezone
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'agv_server'))
+# Add agv_server to path (go up 2 levels from tests/agv-agent-logic/)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from agv_data.agv_agent import RouteStep, DMAS_ET, _calculate_energy_travel, _calculate_energy_wait
 from agv_data.agv_agent_constants import K_ENERGY, K_TIME, C_BASE, C_LOAD_COEFF, P_IDLE
