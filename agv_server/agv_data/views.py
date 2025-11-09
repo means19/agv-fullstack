@@ -741,3 +741,234 @@ class ListResourcesView(ListAPIView):
     queryset = ResourceAgent.objects.all()
     serializer_class = ResourceAgentSerializer
 
+
+# ==================== Map Layout API Views ====================
+
+class MapLayoutAPIView(APIView):
+    """
+    Get map layout data for frontend visualization.
+    
+    Returns nodes (CA, DEPOT, STATION) and edges (LSA) with positions
+    and metadata for rendering the map graph.
+    
+    GET /api/map/layout/
+    
+    Response format:
+    {
+        "nodes": [
+            {
+                "id": "CA-01",
+                "name": "CA-01",
+                "type": "CA",
+                "x": 100,
+                "y": 100,
+                "status": "ONLINE"
+            },
+            ...
+        ],
+        "edges": [
+            {
+                "id": "LSA_CA01_CA02",
+                "name": "LSA_CA01_CA02",
+                "from": "CA-01",
+                "to": "CA-02",
+                "distance_m": 200.0,
+                "base_time_sec": 100.0,
+                "status": "ONLINE"
+            },
+            ...
+        ],
+        "stats": {
+            "num_nodes": 11,
+            "num_edges": 24,
+            "num_ca": 6,
+            "num_depot": 2,
+            "num_station": 3
+        }
+    }
+    """
+    
+    def get(self, request, format=None):
+        from .models import ResourceAgent
+        
+        try:
+            # Get all nodes (CA, DEPOT, STATION)
+            nodes = ResourceAgent.objects.filter(
+                resource_type__in=['CA', 'DEPOT', 'STATION']
+            ).values('name', 'resource_type', 'pos_x', 'pos_y', 'status')
+            
+            # Get all edges (LSA)
+            edges = ResourceAgent.objects.filter(
+                resource_type='LSA',
+                from_ca__isnull=False,
+                to_ca__isnull=False
+            ).select_related('from_ca', 'to_ca').values(
+                'name',
+                'from_ca__name',
+                'to_ca__name',
+                'distance_m',
+                'base_time_sec',
+                'status'
+            )
+            
+            # Format nodes for frontend
+            nodes_data = [
+                {
+                    'id': node['name'],
+                    'name': node['name'],
+                    'type': node['resource_type'],
+                    'x': node['pos_x'],
+                    'y': node['pos_y'],
+                    'status': node['status']
+                }
+                for node in nodes
+            ]
+            
+            # Format edges for frontend
+            edges_data = [
+                {
+                    'id': edge['name'],
+                    'name': edge['name'],
+                    'from': edge['from_ca__name'],
+                    'to': edge['to_ca__name'],
+                    'distance_m': float(edge['distance_m']),
+                    'base_time_sec': float(edge['base_time_sec']),
+                    'status': edge['status']
+                }
+                for edge in edges
+            ]
+            
+            # Calculate statistics
+            stats = {
+                'num_nodes': len(nodes_data),
+                'num_edges': len(edges_data),
+                'num_ca': sum(1 for n in nodes_data if n['type'] == 'CA'),
+                'num_depot': sum(1 for n in nodes_data if n['type'] == 'DEPOT'),
+                'num_station': sum(1 for n in nodes_data if n['type'] == 'STATION'),
+            }
+            
+            return Response({
+                'nodes': nodes_data,
+                'edges': edges_data,
+                'stats': stats
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            traceback_str = traceback.format_exc()
+            return Response(
+                {
+                    'error': f'Error retrieving map layout: {str(e)}',
+                    'details': traceback_str
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class GetIdealPathAPIView(APIView):
+    """
+    Calculate ideal path between two nodes using MapService.
+    
+    GET /api/map/path/?start=CA-01&end=STATION-A&speed=1.5
+    
+    Query parameters:
+    - start: Starting node name (required)
+    - end: Destination node name (required)
+    - speed: AGV speed in m/s (optional, default 1.0)
+    
+    Response format:
+    {
+        "start": "CA-01",
+        "end": "STATION-A",
+        "path": [
+            {
+                "node_name": "CA-01",
+                "resource_type": "CA",
+                "pos_x": 100,
+                "pos_y": 100,
+                "distance_m": 200.0,
+                "cumulative_distance_m": 200.0,
+                "travel_time_sec": 133.33,
+                "cumulative_time_sec": 133.33
+            },
+            ...
+        ],
+        "total_distance_m": 600.0,
+        "total_time_sec": 400.0
+    }
+    """
+    
+    def get(self, request, format=None):
+        from .services import map_service
+        
+        try:
+            start_node = request.query_params.get('start')
+            end_node = request.query_params.get('end')
+            speed = float(request.query_params.get('speed', 1.0))
+            
+            if not start_node or not end_node:
+                return Response(
+                    {'error': 'Missing required parameters: start and end'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if speed <= 0:
+                return Response(
+                    {'error': 'Speed must be greater than 0'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Load graph if not already loaded
+            if map_service._graph is None:
+                map_service.load_graph()
+            
+            # Get ideal path
+            route_steps = map_service.get_ideal_path(start_node, end_node, speed)
+            
+            if route_steps is None:
+                return Response(
+                    {'error': f'No path found from {start_node} to {end_node}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Convert RouteStep dataclasses to dicts
+            path_data = [
+                {
+                    'node_name': step.node_name,
+                    'resource_type': step.resource_type,
+                    'pos_x': step.pos_x,
+                    'pos_y': step.pos_y,
+                    'distance_m': step.distance_m,
+                    'cumulative_distance_m': step.cumulative_distance_m,
+                    'travel_time_sec': step.travel_time_sec,
+                    'cumulative_time_sec': step.cumulative_time_sec
+                }
+                for step in route_steps
+            ]
+            
+            return Response({
+                'start': start_node,
+                'end': end_node,
+                'agv_speed_m_per_sec': speed,
+                'path': path_data,
+                'total_distance_m': route_steps[-1].cumulative_distance_m if route_steps else 0,
+                'total_time_sec': route_steps[-1].cumulative_time_sec if route_steps else 0,
+                'num_steps': len(route_steps)
+            }, status=status.HTTP_200_OK)
+            
+        except ValueError as e:
+            return Response(
+                {'error': f'Invalid input: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            import traceback
+            traceback_str = traceback.format_exc()
+            return Response(
+                {
+                    'error': f'Error calculating path: {str(e)}',
+                    'details': traceback_str
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+

@@ -14,6 +14,9 @@ from .views import (
     ListBookingsView,
     CancelBookingView,
     ListResourcesView,
+    # Map views
+    MapLayoutAPIView,
+    GetIdealPathAPIView,
 )
 
 urlpatterns = [
@@ -55,5 +58,17 @@ urlpatterns = [
         "reservation/resources/",
         ListResourcesView.as_view(),
         name="list_resources"
+    ),
+    
+    # Map endpoints
+    path(
+        "map/layout/",
+        MapLayoutAPIView.as_view(),
+        name="map_layout"
+    ),
+    path(
+        "map/path/",
+        GetIdealPathAPIView.as_view(),
+        name="get_ideal_path"
     ),
 ]

@@ -9,7 +9,7 @@ as specified in agv_agent_logic.md
 # Cost Function Weights
 # ============================================================
 K_ENERGY = 0.5      # Weight for energy component in cost function
-K_TARDINESS = 0.5   # Weight for tardiness component in cost function
+K_TIME = 0.5        # Weight for time component (TFT - Total Flow Time) in cost function
 
 # ============================================================
 # Energy Calculation Constants
@@ -24,6 +24,19 @@ P_IDLE = 0.1            # Idle power consumption in W (watts) when AGV is waitin
 # Base URL for Reservation Table API
 # In production, this should be configured via environment variable
 RESERVATION_API_URL = "http://localhost:8000/api/agvs/reservation"
+
+# ============================================================
+# Dynamic Normalization Parameters
+# ============================================================
+# Epsilon (ε) weight to balance MiniSum and MiniMax objectives
+# epsilon = 1.0 -> Pure efficiency (MiniSum only)
+# epsilon = 0.0 -> Pure load balancing (MiniMax only)
+# epsilon = 0.5 -> 50/50 balance
+EPSILON = 0.5
+
+# Fallback normalization values (used when baseline = 0)
+FALLBACK_NORM_ENERGY_KJ = 1.0   # kJ
+FALLBACK_NORM_TFT_SEC = 1.0     # seconds
 
 # ============================================================
 # Notes on Energy Calculations
@@ -51,11 +64,20 @@ Wait Energy:
     - 6 J / 1000 = 0.006 kJ
     (Division by 1000 converts J to kJ)
 
-Total Cost:
-    J = K_ENERGY * total_energy_kJ + K_TARDINESS * total_tardiness_sec
+Total Cost (Legacy - for reference):
+    J = K_ENERGY * total_energy_kJ + K_TIME * total_tft_sec
     
-    Example with 50 kJ energy and 120 sec tardiness:
+    Example with 50 kJ energy and 120 sec total flow time:
     J = 0.5 * 50 + 0.5 * 120
       = 25 + 60
       = 85
+    
+    Note: Changed from K_TARDINESS (SOT - Sum of Tardiness) to K_TIME (TFT - Total Flow Time).
+    TFT is always positive and measures overall performance, not just lateness.
+    
+    With Dynamic Normalization, the actual bidding calculation is:
+    - Calculate baseline costs (E_baseline, TFT_baseline) using ideal Dijkstra
+    - Calculate marginal costs (E_marginal, TFT_marginal) using DMAS-ET
+    - Normalize: E_norm = E_marginal / E_baseline
+    - Combine MiniSum and MiniMax using EPSILON weight
 """

@@ -1,26 +1,82 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.db.models import Q
 from order_data.models import Order
 
 
 class ResourceAgent(models.Model):
     """
-    Represents a resource that can be reserved in the D-MAS system:
-    Crossroad Agent (CA) or Logical Segment Agent (LSA).
+    Represents a resource in the D-MAS system.
+    Can be a Crossroad Agent (CA), Logical Segment Agent (LSA),
+    Depot station, or Pickup/Delivery station.
+    
+    For map visualization and pathfinding:
+    - Nodes: CA, DEPOT, STATION (have pos_x, pos_y)
+    - Edges: LSA (connect from_ca to to_ca, have distance_m, base_time_sec)
     """
     class ResourceType(models.TextChoices):
         CROSSROAD = 'CA', 'Crossroad Agent'
         SEGMENT = 'LSA', 'Logical Segment Agent'
+        DEPOT = 'DEPOT', 'Depot Station'
+        STATION = 'STATION', 'Pickup/Delivery Station'
+
+    class StatusType(models.TextChoices):
+        ONLINE = 'ONLINE', 'Online'
+        OFFLINE = 'OFFLINE', 'Offline (Maintenance)'
 
     name = models.CharField(
         max_length=100,
         unique=True,
-        help_text="Unique identifier, e.g., 'CA_01' or 'LSA_01_02'"
+        help_text="Unique identifier, e.g., 'CA-01', 'LSA_01_02', 'DEPOT-01', 'STATION-A'"
     )
     resource_type = models.CharField(
-        max_length=3,
+        max_length=10,
         choices=ResourceType.choices,
-        help_text="Resource type (CA or LSA)"
+        help_text="Resource type (CA, LSA, DEPOT, or STATION)"
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=StatusType.choices,
+        default=StatusType.ONLINE,
+        help_text="Resource status (ONLINE or OFFLINE for maintenance)"
+    )
+
+    # Position fields (for nodes: CA, DEPOT, STATION)
+    pos_x = models.IntegerField(
+        default=0,
+        help_text="X coordinate for UI visualization (pixels)"
+    )
+    pos_y = models.IntegerField(
+        default=0,
+        help_text="Y coordinate for UI visualization (pixels)"
+    )
+
+    # Edge/Connection fields (for LSA only)
+    from_ca = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        related_name='edges_out',
+        null=True,
+        blank=True,
+        limit_choices_to=~Q(resource_type='LSA'),
+        help_text="(LSA only) Starting node of this edge"
+    )
+    to_ca = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        related_name='edges_in',
+        null=True,
+        blank=True,
+        limit_choices_to=~Q(resource_type='LSA'),
+        help_text="(LSA only) Ending node of this edge"
+    )
+    distance_m = models.FloatField(
+        default=0.0,
+        help_text="(LSA only) Distance in meters"
+    )
+    base_time_sec = models.FloatField(
+        default=0.0,
+        help_text="(LSA only) Ideal travel time in seconds"
     )
 
     class Meta:
@@ -62,7 +118,7 @@ class Booking(models.Model):
     def __str__(self):
         return f"AGV {self.agv_id} @ {self.resource.name} [{self.start_time} - {self.end_time}]"
 
-
+# OLD MODEL BELOW FOR AGV DATA ACCORDING TO DSPA ALGORITHM
 class Agv(models.Model):
     """
     Represents an AGV in the system according to the DSPA algorithm.
