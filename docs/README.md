@@ -2,8 +2,8 @@
 
 📚 **Complete Documentation for AGV DMAS-ET System**
 
-**Last Updated:** November 9, 2025  
-**System Version:** 1.2
+**Last Updated:** November 27, 2025  
+**System Version:** 2.0
 
 ---
 
@@ -106,21 +106,30 @@ See [Documentation by Component](#-documentation-by-component) below
 
 ---
 
-### ✅ Reservation Table (COMPLETE)
-**Folder:** [`reservation-table/`](./reservation-table/)
+### ✅ Reservation System (COMPLETE - Refactored v2.0)
+**Main Documentation:** **[reservation-system-technical-design.md](./reservation-system-technical-design.md)** ⭐
 
-**Key Files:**
-- **[reservation-table.md](./reservation-table/reservation-table.md)** - API documentation
-- **[reservation-table-implementation-summary.md](./reservation-table/reservation-table-implementation-summary.md)** - Summary
-- **[reservation-table-quickstart.md](./reservation-table/reservation-table-quickstart.md)** - Quick start
-
-**Status:** 🟢 COMPLETED
+**Status:** 🟢 COMPLETED & REFACTORED (Clean Architecture)
 
 **What it does:**
 - Manages time-based resource reservations
-- Query API (exploring phase)
-- Booking API (intention phase)
-- Transaction isolation for atomicity
+- **Exploring Ant API** (slot queries without booking)
+- **Intention Ant API** (strict booking with fail-fast)
+- Transaction isolation with pessimistic locking
+- **Clean Architecture:** Domain → Repository → Service → API layers
+
+**Architecture:**
+- **Domain Layer:** Value objects (TimeSlot, BookingRequest, SlotQuery) + Custom exceptions
+- **Repository Layer:** Data access abstraction (ResourceRepository, BookingRepository)
+- **Service Layer:** Business logic (SlotFinderService, BookingService)
+- **API Layer:** REST endpoints (5 views)
+
+**Design Patterns:** Repository Pattern, Value Objects, Dependency Injection, Single Responsibility
+
+**Test Results:**
+- ✅ 9/9 sequential functional tests passing
+- ✅ Perfect concurrency score (1 success, 9 conflicts out of 10 concurrent requests)
+- ✅ Zero overlap violations
 
 ---
 
@@ -220,6 +229,9 @@ docs/
 ├── DMAS-ET-OVERVIEW.md ⭐ START HERE
 │   └── Complete system overview
 │
+├── reservation-system-technical-design.md ⭐ TECHNICAL DESIGN
+│   └── Complete reservation system documentation
+│
 ├── auction-logic/ ✅ Phase 1
 │   ├── README.md
 │   ├── auction-bidding-quickstart.md
@@ -232,11 +244,6 @@ docs/
 │   ├── agv-agent-exploring-ant.md
 │   ├── agv-agent-implementation-summary.md
 │   └── agv-agent-quickstart.md
-│
-├── reservation-table/ ✅ Infrastructure
-│   ├── reservation-table.md
-│   ├── reservation-table-implementation-summary.md
-│   └── reservation-table-quickstart.md
 │
 ├── map-service/ ✅ Infrastructure
 │   ├── map-implementation-completed.md
@@ -286,8 +293,11 @@ docs/
 **Understand DMAS-ET algorithm**
 → [exploring-ants/agv-agent-exploring-ant.md](./exploring-ants/agv-agent-exploring-ant.md)
 
-**Understand reservation table**
-→ [reservation-table/reservation-table.md](./reservation-table/reservation-table.md)
+**Understand reservation system**
+→ [reservation-system-technical-design.md](./reservation-system-technical-design.md)
+
+**Test reservation system**
+→ See [reservation-system-technical-design.md - Testing Strategy](./reservation-system-technical-design.md#9-testing-strategy)
 
 **Understand map/pathfinding**
 → [map-service/map-implementation-completed.md](./map-service/map-implementation-completed.md)
@@ -312,7 +322,7 @@ docs/
 |-----------|--------|---------------|-------|
 | **Auction System** | 🟢 Complete | ✅ Full | ✅ 6/6 passing |
 | **Exploring Ant (DMAS-ET)** | 🟢 Complete | ✅ Full | ✅ Passing |
-| **Reservation Table** | 🟢 Complete | ✅ Full | ✅ Passing |
+| **Reservation System** | 🟢 Complete | ✅ Full | ✅ 9/9 + concurrency |
 | **Map Service** | 🟢 Complete | ✅ Full | ✅ Passing |
 | **Intention Ant** | 🔴 Not Started | ⏳ Pending | ⏳ Pending |
 | **Task Execution** | 🔴 Not Started | ⏳ Pending | ⏳ Pending |
@@ -387,7 +397,7 @@ agv_server/agv_data/services.py (MapService)
 
 ---
 
-**Last Review:** November 9, 2025  
+**Last Review:** November 27, 2025  
 **Next Review:** After Phase 3 (Intention Ant) completion
 
 ---

@@ -46,7 +46,7 @@ def test_reservation_system():
         resources = response.json()
         
         if not resources:
-            print("\n⚠️  No resources found!")
+            print("\n  No resources found!")
             print("Please create some resources first using Django shell:")
             print("  docker-compose exec server python manage.py shell")
             print("\nThen run:")
@@ -55,7 +55,7 @@ def test_reservation_system():
             print("  ResourceAgent.objects.create(name='LSA_01_02', resource_type='LSA')")
             return False
         
-        print(f"\n✅ Found {len(resources)} resources")
+        print(f"\n Found {len(resources)} resources")
         resource_id = resources[0]['id']
         resource_name = resources[0]['name']
         print(f"Using resource: {resource_name} (ID: {resource_id}) for testing")
@@ -85,7 +85,7 @@ def test_reservation_system():
     print_response(response)
     
     if response.status_code == 200:
-        print("\n✅ Query slot successful")
+        print("\n Query slot successful")
     else:
         print("\n❌ Query slot failed")
     
@@ -111,7 +111,7 @@ def test_reservation_system():
     
     booking = response.json()
     booking_id = booking['id']
-    print(f"\n✅ Booking created successfully (ID: {booking_id})")
+    print(f"\n Booking created successfully (ID: {booking_id})")
     
     # Test 4: Query slot again (should return later time due to conflict)
     print_section("Test 4: Query Slot Again (Should Detect Conflict)")
@@ -132,9 +132,9 @@ def test_reservation_system():
         result = response.json()
         delay = result.get('calculated_delay_seconds', 0)
         if delay > 0:
-            print(f"\n✅ Conflict detected! Suggested delay: {delay} seconds")
+            print(f"\n Conflict detected! Suggested delay: {delay} seconds")
         else:
-            print("\n⚠️  No conflict detected (unexpected)")
+            print("\n No conflict detected (unexpected)")
     
     # Test 5: List bookings for AGV
     print_section("Test 5: List Bookings for AGV 1")
@@ -143,7 +143,7 @@ def test_reservation_system():
     
     if response.status_code == 200:
         bookings = response.json()
-        print(f"\n✅ Found {len(bookings)} booking(s) for AGV 1")
+        print(f"\n Found {len(bookings)} booking(s) for AGV 1")
     
     # Test 6: Book another slot (different time, should succeed)
     print_section("Test 6: Book Another Slot (2 minutes later)")
@@ -163,7 +163,7 @@ def test_reservation_system():
     print_response(response)
     
     if response.status_code == 201:
-        print("\n✅ Second booking created successfully")
+        print("\n Second booking created successfully")
     else:
         print("\n❌ Second booking failed")
     
@@ -174,7 +174,7 @@ def test_reservation_system():
     
     if response.status_code == 200:
         bookings = response.json()
-        print(f"\n✅ Found {len(bookings)} booking(s) for resource {resource_name}")
+        print(f"\n Found {len(bookings)} booking(s) for resource {resource_name}")
     
     # Test 8: Cancel first booking
     print_section("Test 8: Cancel First Booking")
@@ -184,7 +184,7 @@ def test_reservation_system():
     print_response(response)
     
     if response.status_code == 200:
-        print("\n✅ Booking cancelled successfully")
+        print("\n Booking cancelled successfully")
     else:
         print("\n❌ Failed to cancel booking")
     
@@ -195,10 +195,10 @@ def test_reservation_system():
     
     if response.status_code == 200:
         bookings = response.json()
-        print(f"\n✅ AGV 1 now has {len(bookings)} booking(s)")
+        print(f"\n AGV 1 now has {len(bookings)} booking(s)")
     
     print_section("Test Summary")
-    print("✅ All tests completed successfully!")
+    print(" All tests completed successfully!")
     print("\nReservation Table System is working correctly.")
     
     return True
