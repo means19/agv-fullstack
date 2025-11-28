@@ -12,7 +12,6 @@ from asgiref.sync import async_to_sync
 import csv
 import io
 from rest_framework.parsers import MultiPartParser, FormParser
-from .apply_main_algorithms.apply_main_algorithms import process_agv_report # <-- Import hàm adapter
 
 
 def send_order_assignment_notification(order_id, agv_id, message, additional_data=None):
@@ -34,10 +33,6 @@ def send_order_assignment_notification(order_id, agv_id, message, additional_dat
             agv = Agv.objects.get(agv_id=agv_id)
             agv_data = {
                 "current_node": agv.current_node,
-                "common_nodes_count": len(agv.common_nodes) if agv.common_nodes else 0,
-                "adjacent_common_nodes_count": len(agv.adjacent_common_nodes)
-                if agv.adjacent_common_nodes
-                else 0,
                 "remaining_path_length": len(agv.remaining_path)
                 if agv.remaining_path
                 else 0,
@@ -128,101 +123,24 @@ class BulkDeleteAGVsView(APIView):
 
 class DispatchOrdersToAGVsView(APIView):
     """
-    API endpoint to schedule orders to be assigned to available AGVs at their specified times.
-    This replaces the functionality previously in the schedule_generate app.
+    [DEPRECATED - DSPA Removed]
+    This endpoint is no longer functional. Use SSI-DMAS-ET auction system instead.
+    
+    For automated order assignment, orders are now dispatched through the auction mechanism
+    when AGVs become available. Manual testing can be done via admin panel.
     """
-
-    def __init__(self):
-        super().__init__()
-        from .main_algorithms.algorithm1.algorithm1 import TaskDispatcher
-
-        self.task_dispatcher = TaskDispatcher()
 
     def post(self, request):
         """
-        Schedule orders to be assigned to idle AGVs at their specified start_time and order_date.
-
-        Returns:
-            Response: Information about scheduled orders.
+        Return deprecation notice.
         """
-        try:  # Get the algorithm parameter (defaults to dijkstra)
-            algorithm = request.data.get("algorithm", "dijkstra")
-
-            # Get all unassigned orders with their scheduling information
-            unassigned_orders = self.task_dispatcher.get_unassigned_orders()
-
-            if not unassigned_orders.exists():
-                return self._create_no_orders_response()
-
-            # Clear any existing scheduled jobs to avoid duplicates
-            schedule.clear()
-
-            # Process orders for scheduling or immediate assignment
-            scheduled_orders, immediate_orders = (
-                self.task_dispatcher.process_orders_for_scheduling(algorithm)
-            )
-
-            # Start scheduler if needed
-            # Recalculate common nodes for all active AGVs after immediate assignments
-            self.task_dispatcher.start_scheduler_if_needed(scheduled_orders)
-            if immediate_orders:
-                try:
-                    from .main_algorithms.algorithm1.common_nodes import (
-                        recalculate_all_common_nodes,
-                    )
-
-                    recalculate_all_common_nodes(log_summary=True)
-                    print(
-                        f"Recalculated common nodes for all AGVs after {len(immediate_orders)} immediate assignments"
-                    )
-                except Exception as e:
-                    print(
-                        f"Error recalculating common nodes after immediate assignments: {str(e)}"
-                    )
-
-            return self._create_success_response(scheduled_orders, immediate_orders)
-
-        except Exception as e:
-            return self._create_error_response(e)
-
-    def _create_no_orders_response(self):
-        """Create response for when no unassigned orders are available."""
         return Response(
             {
                 "success": False,
-                "message": "No unassigned orders available to schedule.",
+                "message": "DSPA scheduling system has been removed. Use SSI-DMAS-ET auction system instead.",
+                "details": "Orders are now assigned automatically through the auction mechanism when AGVs finish their tasks."
             },
-            status=status.HTTP_200_OK,
-        )
-
-    def _create_success_response(self, scheduled_orders, immediate_orders):
-        """Create success response with order scheduling results."""
-        total_processed = len(scheduled_orders) + len(immediate_orders)
-
-        return Response(
-            {
-                "success": True,
-                "message": f"Successfully scheduled {len(scheduled_orders)} orders and immediately assigned {len(immediate_orders)} orders",
-                "scheduled_orders": scheduled_orders,
-                "immediate_orders": immediate_orders,
-                "total_processed": total_processed,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-    def _create_error_response(self, exception):
-        """Create error response with exception details."""
-        import traceback
-
-        traceback_str = traceback.format_exc()
-
-        return Response(
-            {
-                "success": False,
-                "message": f"Error scheduling orders: {str(exception)}",
-                "details": traceback_str,
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status=status.HTTP_410_GONE,
         )
 
 
@@ -248,20 +166,16 @@ class ResetAGVsView(APIView):
 
             # Reset each AGV
             for agv in agvs:
-                # Reset all state fields
+                # Reset all state fields (SSI-DMAS-ET only)
                 agv.current_node = None
                 agv.next_node = None
                 agv.reserved_node = None
                 agv.motion_state = Agv.IDLE
-                agv.spare_flag = False
-                agv.backup_nodes = {}
-                agv.initial_path = []
                 agv.remaining_path = []
-                agv.common_nodes = []
-                agv.adjacent_common_nodes = []
                 agv.active_order = None
                 agv.previous_node = None
                 agv.direction_change = Agv.GO_STRAIGHT
+                agv.journey_phase = Agv.OUTBOUND
 
                 # Save the changes
                 agv.save(
@@ -270,15 +184,11 @@ class ResetAGVsView(APIView):
                         "next_node",
                         "reserved_node",
                         "motion_state",
-                        "spare_flag",
-                        "backup_nodes",
-                        "initial_path",
                         "remaining_path",
-                        "common_nodes",
-                        "adjacent_common_nodes",
                         "active_order",
                         "previous_node",
                         "direction_change",
+                        "journey_phase",
                     ]
                 )
 
@@ -466,8 +376,8 @@ class CreateAGVsViaCSVView(APIView):
         
 class GodotReportLocationView(APIView):
     """
-    API endpoint cho Godot simulation (Digital Twin) báo cáo vị trí
-    và nhận chỉ thị tiếp theo.
+    API endpoint for Godot simulation (Digital Twin) to report AGV position.
+    Simple position update - no DSPA control policy.
     """
 
     def post(self, request, *args, **kwargs):
@@ -481,34 +391,28 @@ class GodotReportLocationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 1. Gọi hàm "adapter" lõi (giống hệt MQTT)
-        all_affected_agvs = process_agv_report(
-            agv_id=int(agv_id),
-            current_node=int(current_node)
-        )
-
-        # 2. Tìm AGV GỐC (Godot) để trả về phản hồi
-        this_agv = None
-        for agv in all_affected_agvs:
-            if agv.agv_id == int(agv_id):
-                this_agv = agv
-                break
-
-        # 3. Xây dựng và trả về phản hồi JSON cho Godot
-        if this_agv:
-            # Xây dựng phản hồi dựa trên 'encode_message' của bạn
-            response_dict = {
-                "motion_state": this_agv.motion_state,
-                "reserved_node": this_agv.reserved_node,
-                "direction_change": this_agv.direction_change,
-                # Thêm các trường khác nếu Godot cần
-            }
-            return Response(response_dict, status=status.HTTP_200_OK)
-        else:
-            # Trường hợp AGV không tìm thấy (đã được log bởi process_agv_report)
+        # Update AGV position in database
+        try:
+            agv = Agv.objects.get(agv_id=int(agv_id))
+            agv.current_node = int(current_node)
+            agv.save(update_fields=['current_node'])
+            
+            # Return simple response (no control policy)
+            return Response({
+                "agv_id": agv.agv_id,
+                "current_node": agv.current_node,
+                "message": "Position updated successfully"
+            }, status=status.HTTP_200_OK)
+            
+        except Agv.DoesNotExist:
             return Response(
-                {"error": f"Không tìm thấy AGV {agv_id} hoặc không có phản hồi"},
+                {"error": f"Không tìm thấy AGV {agv_id}"},
                 status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Lỗi khi cập nhật vị trí: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 

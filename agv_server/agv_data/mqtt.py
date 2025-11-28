@@ -6,11 +6,6 @@ from .models import Agv
 from .encode_decode_data_frames.agv_to_server_decoder import decode_message
 from .encode_decode_data_frames.server_to_agv_encoder import encode_message
 
-from .apply_main_algorithms.apply_main_algorithms import (
-    _get_agv_by_id,  # Vẫn cần cho 'this_agv = ...'
-    process_agv_report  # <-- Import hàm adapter mới
-)
-
 MQTT_TOPIC_AGVDATA = settings.MQTT_TOPIC_AGVDATA
 MQTT_TOPIC_AGVROUTE = settings.MQTT_TOPIC_AGVROUTE
 MQTT_TOPIC_AGVHELLO = settings.MQTT_TOPIC_AGVHELLO
@@ -41,10 +36,10 @@ def _on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
 def handle_agv_data_message(client: mqtt.Client, message: mqtt.MQTTMessage) -> None:
     """
     Handle AGV data messages containing location updates.
-    Processes AGV location update and applies DSPA control policy.
+    Simple position update - no DSPA control policy.
 
     Args:
-        mqtt_client: MQTT client instance
+        client: MQTT client instance
         message: MQTT message object with payload containing AGV data
     """
     try:
@@ -54,21 +49,18 @@ def handle_agv_data_message(client: mqtt.Client, message: mqtt.MQTTMessage) -> N
             return
 
         (this_agv_id, this_agv_current_node) = this_agv_data
-        if not _get_agv_by_id(this_agv_id):
+        
+        # Update AGV position in database
+        try:
+            agv = Agv.objects.get(agv_id=this_agv_id)
+            agv.current_node = this_agv_current_node
+            agv.save(update_fields=['current_node'])
+            print(f"Updated AGV {this_agv_id} position to node {this_agv_current_node}")
+        except Agv.DoesNotExist:
+            print(f"AGV {this_agv_id} not found in database")
             return
-        # 1. Gọi hàm "adapter" lõi
-        # Nó sẽ xử lý tất cả logic và trả về MỌI AGV cần được cập nhật
-        all_affected_agvs = process_agv_report(
-            agv_id=this_agv_id,
-            current_node=this_agv_current_node
-        )
-
-        # 2. Gửi phản hồi MQTT đến TẤT CẢ AGV bị ảnh hưởng
-        if all_affected_agvs:
-            for agv in all_affected_agvs:
-                _send_mqtt_message_to_agv(client, agv)
+            
     except Exception as e:
-        # avoid silently swallowing errors; print for debugging
         print(f"Error handling AGV data message: {e}")
         pass
 

@@ -223,63 +223,6 @@ class Agv(models.Model):
         size=None,
     )
 
-    # ========================================
-    # DEPRECATED FIELDS (DSPA - Not used by SSI-DMAS-ET)
-    # ========================================
-    # These fields are kept for backward compatibility but not used in current algorithm.
-    # Can be removed in future migration after confirming no dependencies.
-    
-    # DSPA deadlock resolution (replaced by Reservation Table)
-    spare_flag = models.BooleanField(
-        default=False,
-        help_text="[DEPRECATED] DSPA spare flag - not used in SSI-DMAS-ET",
-    )
-    backup_nodes = models.JSONField(
-        default=dict,
-        help_text="[DEPRECATED] DSPA backup nodes - not used in SSI-DMAS-ET",
-    )
-    waiting_for_deadlock_resolution = models.BooleanField(
-        default=False,
-        help_text="[DEPRECATED] DSPA deadlock tracking - not used in SSI-DMAS-ET",
-    )
-    deadlock_partner_agv_id = models.BigIntegerField(
-        null=True,
-        blank=True,
-        help_text="[DEPRECATED] DSPA deadlock partner - not used in SSI-DMAS-ET",
-    )
-
-    # DSPA path fields (replaced by dynamic route planning + Reservation Table)
-    initial_path = ArrayField(
-        models.IntegerField(),
-        help_text="[DEPRECATED] DSPA initial path - not used in SSI-DMAS-ET",
-        default=list,
-        size=None,
-    )
-    outbound_path = ArrayField(
-        models.IntegerField(),
-        help_text="[DEPRECATED] DSPA outbound path - not used in SSI-DMAS-ET",
-        default=list,
-        size=None,
-    )
-    inbound_path = ArrayField(
-        models.IntegerField(),
-        help_text="[DEPRECATED] DSPA inbound path - not used in SSI-DMAS-ET",
-        default=list,
-        size=None,
-    )
-    common_nodes = ArrayField(
-        models.IntegerField(),
-        help_text="[DEPRECATED] DSPA common nodes - not used in SSI-DMAS-ET",
-        default=list,
-        size=None,
-    )
-    adjacent_common_nodes = ArrayField(
-        models.IntegerField(),
-        help_text="[DEPRECATED] DSPA adjacent common nodes - not used in SSI-DMAS-ET",
-        default=list,
-        size=None,
-    )
-
     def save(self, *args, **kwargs):
         """
         Override the save method to send WebSocket updates whenever an AGV instance is saved.
