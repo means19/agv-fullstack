@@ -77,7 +77,7 @@ class QuerySlotView(APIView):
             # Create query object
             query = SlotQuery(
                 resource_id=resource_id,
-                requested_start_time=start_time,
+                desired_start=start_time,
                 duration=timedelta(seconds=duration_sec)
             )
             

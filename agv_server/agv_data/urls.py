@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, include
 from .views import (
     CreateAGVView,
     CreateAGVsViaCSVView,
@@ -8,12 +8,6 @@ from .views import (
     DispatchOrdersToAGVsView,
     ResetAGVsView,
     GodotReportLocationView,
-    # Reservation Table views
-    QuerySlotView,
-    BookSlotView,
-    ListBookingsView,
-    CancelBookingView,
-    ListResourcesView,
     # Map views
     MapLayoutAPIView,
     GetIdealPathAPIView,
@@ -33,32 +27,8 @@ urlpatterns = [
         name="dispatch_orders_to_agvs",
     ),
     
-    # Reservation Table endpoints
-    path(
-        "reservation/resource/<int:resource_id>/query_slot/",
-        QuerySlotView.as_view(),
-        name="query_slot"
-    ),
-    path(
-        "reservation/resource/<int:resource_id>/book_slot/",
-        BookSlotView.as_view(),
-        name="book_slot"
-    ),
-    path(
-        "reservation/bookings/",
-        ListBookingsView.as_view(),
-        name="list_bookings"
-    ),
-    path(
-        "reservation/bookings/<int:booking_id>/",
-        CancelBookingView.as_view(),
-        name="cancel_booking"
-    ),
-    path(
-        "reservation/resources/",
-        ListResourcesView.as_view(),
-        name="list_resources"
-    ),
+    # Reservation Table endpoints (NEW: from reservation module)
+    path("reservation/", include('reservation.api.urls')),
     
     # Map endpoints
     path(

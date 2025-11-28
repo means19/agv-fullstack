@@ -210,8 +210,7 @@ def main():
     print("  1. Auctioneer baseline calculation (Algorithm A)")
     print("  2. AGV bid calculation (Algorithm B)")
     print("  3. Complete auction process with winner selection")
-    print("\nPress Enter to continue...")
-    input()
+    print("\nRunning tests...")
     
     # Check prerequisites
     if not check_prerequisites():
