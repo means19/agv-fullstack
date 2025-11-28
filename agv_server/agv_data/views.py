@@ -529,18 +529,30 @@ class QuerySlotView(APIView):
     }
     """
     
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        from reservation import SlotFinderService
+        self.slot_finder = SlotFinderService()
+    
     def post(self, request, resource_id, format=None):
         from datetime import timedelta
         from django.utils.dateparse import parse_datetime
-        from . import services
+        from reservation import SlotQuery, ResourceNotFoundError, InvalidBookingError
         
         try:
             start_time_str = request.data.get('request_start_time')
-            duration_sec = int(request.data.get('duration_seconds', 0))
+            duration_sec = request.data.get('duration_seconds')
             
-            if not start_time_str or duration_sec <= 0:
+            if not start_time_str or not duration_sec:
                 return Response(
-                    {"error": "Missing or invalid 'request_start_time' or 'duration_seconds'"},
+                    {"error": "Missing required fields: 'request_start_time' or 'duration_seconds'"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            duration_sec = int(duration_sec)
+            if duration_sec <= 0:
+                return Response(
+                    {"error": "duration_seconds must be positive"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -551,13 +563,15 @@ class QuerySlotView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            duration = timedelta(seconds=duration_sec)
-            
-            earliest_slot_start = services.find_earliest_available_slot(
+            # Create query object using new value object
+            query = SlotQuery(
                 resource_id=resource_id,
-                request_start_time=start_time,
-                duration=duration
+                desired_start=start_time,
+                duration=timedelta(seconds=duration_sec)
             )
+            
+            # Use new service
+            earliest_slot_start = self.slot_finder.find_earliest_available_slot(query)
             
             delay_seconds = (earliest_slot_start - start_time).total_seconds()
             
@@ -568,12 +582,12 @@ class QuerySlotView(APIView):
                 "calculated_delay_seconds": delay_seconds
             }, status=status.HTTP_200_OK)
         
-        except services.ResourceNotFoundError as e:
+        except ResourceNotFoundError as e:
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_404_NOT_FOUND
             )
-        except ValueError as e:
+        except (ValueError, InvalidBookingError) as e:
             return Response(
                 {"error": f"Invalid input: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -587,7 +601,7 @@ class QuerySlotView(APIView):
 
 class BookSlotView(APIView):
     """
-    Create a booking for a resource (Intention Ant operation).
+    Create a booking for a resource (Intention Ant operation - STRICT MODE).
     
     POST /api/agvs/reservation/resource/<int:resource_id>/book_slot/
     Body:
@@ -598,10 +612,18 @@ class BookSlotView(APIView):
     }
     """
     
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        from reservation import BookingService
+        self.booking_service = BookingService()
+    
     def post(self, request, resource_id, format=None):
         from datetime import timedelta
         from django.utils.dateparse import parse_datetime
-        from . import services
+        from reservation import (
+            BookingRequest, TimeSlot,
+            BookingConflictError, ResourceNotFoundError, InvalidBookingError
+        )
         from .serializers import BookingSerializer
         
         try:
@@ -618,6 +640,12 @@ class BookSlotView(APIView):
             agv_id = int(agv_id)
             duration_sec = int(duration_sec)
             
+            if duration_sec <= 0:
+                return Response(
+                    {"error": "duration_seconds must be positive"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             start_time = parse_datetime(start_time_str)
             if not start_time:
                 return Response(
@@ -625,31 +653,34 @@ class BookSlotView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Create booking request using new value objects
             duration = timedelta(seconds=duration_sec)
+            end_time = start_time + duration
             
-            # STRICT MODE: Book the EXACT slot requested (from Exploring Ant)
-            # If slot is occupied, return 409 and AGV must abort mission
-            new_booking = services.create_booking(
+            booking_request = BookingRequest(
                 resource_id=resource_id,
                 agv_id=agv_id,
-                exact_start_time=start_time,  # Changed from requested_start_time
-                duration=duration
+                time_slot=TimeSlot(start_time=start_time, end_time=end_time)
             )
+            
+            # STRICT MODE: Book EXACT slot or fail with 409
+            new_booking = self.booking_service.create_booking(booking_request)
             
             serializer = BookingSerializer(new_booking)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         
-        except services.ResourceNotFoundError as e:
+        except ResourceNotFoundError as e:
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_404_NOT_FOUND
             )
-        except services.BookingConflictError as e:
+        except BookingConflictError as e:
+            # 409 Conflict: AGV must abort mission
             return Response(
-                {"error": f"Booking conflict (retry recommended): {str(e)}"},
+                {"error": str(e)},
                 status=status.HTTP_409_CONFLICT
             )
-        except ValueError as e:
+        except (ValueError, InvalidBookingError) as e:
             return Response(
                 {"error": f"Invalid input: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -669,40 +700,44 @@ class ListBookingsView(APIView):
     GET /api/agvs/reservation/bookings/?resource_id=<resource_id>
     """
     
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        from reservation import BookingService
+        self.booking_service = BookingService()
+    
     def get(self, request, format=None):
-        from . import services
         from .serializers import BookingSerializer
         
         agv_id = request.query_params.get('agv_id')
         resource_id = request.query_params.get('resource_id')
         
-        if agv_id:
-            try:
+        try:
+            if agv_id:
                 agv_id = int(agv_id)
                 include_past = request.query_params.get('include_past', 'false').lower() == 'true'
-                bookings = services.get_bookings_for_agv(agv_id, include_past=include_past)
-            except ValueError:
-                return Response(
-                    {"error": "Invalid agv_id"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        elif resource_id:
-            try:
+                bookings = self.booking_service.get_agv_bookings(agv_id, include_past)
+            elif resource_id:
                 resource_id = int(resource_id)
-                bookings = services.get_bookings_for_resource(resource_id)
-            except ValueError:
+                bookings = self.booking_service.get_resource_bookings(resource_id)
+            else:
                 return Response(
-                    {"error": "Invalid resource_id"},
+                    {"error": "Must provide either 'agv_id' or 'resource_id' query parameter"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        else:
+            
+            serializer = BookingSerializer(bookings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        
+        except ValueError:
             return Response(
-                {"error": "Must provide either 'agv_id' or 'resource_id' query parameter"},
+                {"error": "Invalid agv_id or resource_id"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        serializer = BookingSerializer(bookings, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class CancelBookingView(APIView):
@@ -712,20 +747,29 @@ class CancelBookingView(APIView):
     DELETE /api/agvs/reservation/bookings/<int:booking_id>/
     """
     
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        from reservation import BookingService
+        self.booking_service = BookingService()
+    
     def delete(self, request, booking_id, format=None):
-        from . import services
-        
-        success = services.cancel_booking(booking_id)
-        
-        if success:
+        try:
+            success = self.booking_service.cancel_booking(booking_id)
+            
+            if success:
+                return Response(
+                    {"message": f"Booking {booking_id} cancelled successfully"},
+                    status=status.HTTP_200_OK
+                )
+            else:
+                return Response(
+                    {"error": f"Booking {booking_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        except Exception as e:
             return Response(
-                {"message": f"Booking {booking_id} cancelled successfully"},
-                status=status.HTTP_200_OK
-            )
-        else:
-            return Response(
-                {"error": f"Booking {booking_id} not found"},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 
@@ -899,7 +943,7 @@ class GetIdealPathAPIView(APIView):
     """
     
     def get(self, request, format=None):
-        from .services import map_service
+        from map_data.services.map_service import MapService
         
         try:
             start_node = request.query_params.get('start')
@@ -918,44 +962,18 @@ class GetIdealPathAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Load graph if not already loaded
-            if map_service._graph is None:
-                map_service.load_graph()
+            # Use MapService from map_data module
+            map_service = MapService()
+            path_result = map_service.get_shortest_path(start_node, end_node)
             
-            # Get ideal path
-            route_steps = map_service.get_ideal_path(start_node, end_node, speed)
-            
-            if route_steps is None:
+            if not path_result['success']:
                 return Response(
-                    {'error': f'No path found from {start_node} to {end_node}'},
+                    {'error': path_result.get('message', 'Failed to find path')},
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Convert RouteStep dataclasses to dicts
-            path_data = [
-                {
-                    'node_name': step.node_name,
-                    'resource_type': step.resource_type,
-                    'pos_x': step.pos_x,
-                    'pos_y': step.pos_y,
-                    'distance_m': step.distance_m,
-                    'cumulative_distance_m': step.cumulative_distance_m,
-                    'travel_time_sec': step.travel_time_sec,
-                    'cumulative_time_sec': step.cumulative_time_sec
-                }
-                for step in route_steps
-            ]
-            
-            return Response({
-                'start': start_node,
-                'end': end_node,
-                'agv_speed_m_per_sec': speed,
-                'path': path_data,
-                'total_distance_m': route_steps[-1].cumulative_distance_m if route_steps else 0,
-                'total_time_sec': route_steps[-1].cumulative_time_sec if route_steps else 0,
-                'num_steps': len(route_steps)
-            }, status=status.HTTP_200_OK)
-            
+            return Response(path_result['data'], status=status.HTTP_200_OK)
+        
         except ValueError as e:
             return Response(
                 {'error': f'Invalid input: {str(e)}'},
