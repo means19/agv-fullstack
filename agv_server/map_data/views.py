@@ -1,86 +1,179 @@
 """Views for handling map data operations."""
 
 import logging
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
-from .services.map_service import MapService
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .services import MapImportService, MapQueryService
+from .exceptions import (
+    MapDataException,
+    MapDataNotFoundException,
+    MapDataImportException,
+)
 from .constants import ErrorMessages, LogMessages
 
 logger = logging.getLogger(__name__)
 
 
-@csrf_exempt
-@require_POST
-def import_connections(request):
-    """Import connection data from CSV file."""
-    try:
-        data = request.body.decode("utf-8")
-        result = MapService.import_connections(data)
+class ImportConnectionsAPIView(APIView):
+    """API endpoint for importing connection data from CSV."""
 
-        if result["success"]:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.import_service = MapImportService()
+
+    def post(self, request):
+        """
+        Import connection data from CSV file.
+        
+        Request body should contain raw CSV data as string.
+        """
+        try:
+            data = request.body.decode("utf-8")
+            result = self.import_service.import_connections(data)
+
             logger.info(
                 LogMessages.IMPORT_CONNECTIONS.format(result["connection_count"])
             )
-            return JsonResponse({"message": result["message"]}, status=200)
-        else:
-            logger.error(result["message"])
-            return JsonResponse({"error": result["message"]}, status=400)
-    except Exception as e:
-        logger.error(ErrorMessages.IMPORT_ERROR.format(str(e)))
-        return JsonResponse({"error": str(e)}, status=500)
+            return Response(result, status=status.HTTP_200_OK)
+
+        except MapDataImportException as e:
+            logger.error(str(e))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(ErrorMessages.IMPORT_ERROR.format(str(e)))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
-@csrf_exempt
-@require_POST
-def import_directions(request):
-    """Import direction data from CSV file."""
-    try:
-        data = request.body.decode("utf-8")
-        result = MapService.import_directions(data)
+class ImportDirectionsAPIView(APIView):
+    """API endpoint for importing direction data from CSV."""
 
-        if result["success"]:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.import_service = MapImportService()
+
+    def post(self, request):
+        """
+        Import direction data from CSV file.
+        
+        Request body should contain raw CSV data as string.
+        """
+        try:
+            data = request.body.decode("utf-8")
+            result = self.import_service.import_directions(data)
+
             logger.info(LogMessages.IMPORT_DIRECTIONS.format(result["direction_count"]))
-            return JsonResponse({"message": result["message"]}, status=200)
-        else:
-            logger.error(result["message"])
-            return JsonResponse({"error": result["message"]}, status=400)
-    except Exception as e:
-        logger.error(ErrorMessages.IMPORT_ERROR.format(str(e)))
-        return JsonResponse({"error": str(e)}, status=500)
+            return Response(result, status=status.HTTP_200_OK)
+
+        except MapDataImportException as e:
+            logger.error(str(e))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(ErrorMessages.IMPORT_ERROR.format(str(e)))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
-@csrf_exempt
-def get_map_data(request):
-    """Get all map data including nodes, connections, and directions."""
-    try:
-        result = MapService.get_map_data()
+class MapDataAPIView(APIView):
+    """API endpoint for retrieving complete map data."""
 
-        if result["success"]:
-            return JsonResponse(result["data"], status=200)
-        else:
-            # Return a 206 Partial Content status if we have partial data
-            status_code = 206 if "available" in result else 404
-            return JsonResponse(result, status=status_code)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.query_service = MapQueryService()
 
-    except Exception as e:
-        logger.error(str(e))
-        return JsonResponse({"error": str(e)}, status=500)
+    def get(self, request):
+        """
+        Get all map data including nodes, connections, and directions.
+        
+        Returns 200 with complete data or 206/404 for partial/missing data.
+        """
+        try:
+            data = self.query_service.get_complete_map_data()
+            return Response(
+                {"success": True, "data": data}, status=status.HTTP_200_OK
+            )
+
+        except MapDataNotFoundException as e:
+            logger.warning(str(e))
+            # Return 206 Partial Content if some data exists
+            status_code = (
+                status.HTTP_206_PARTIAL_CONTENT
+                if e.extra_data.get("available")
+                else status.HTTP_404_NOT_FOUND
+            )
+            return Response(
+                {
+                    "success": False,
+                    "error": str(e),
+                    "missing": e.extra_data.get("missing", []),
+                    "available": e.extra_data.get("available"),
+                },
+                status=status_code,
+            )
+        except Exception as e:
+            logger.error(str(e))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
-@csrf_exempt
-@require_POST
-def delete_all_map_data(request):
-    """Delete all map data."""
-    try:
-        result = MapService.delete_all_data()
+class DeleteMapDataAPIView(APIView):
+    """API endpoint for deleting all map data."""
 
-        if result["success"]:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.query_service = MapQueryService()
+
+    def post(self, request):
+        """
+        Delete all map data from database.
+        
+        Returns deletion statistics.
+        """
+        try:
+            result = self.query_service.delete_all_map_data()
+
             logger.info(LogMessages.DELETE_SUCCESS)
-            return JsonResponse(result, status=200)
-        else:
-            logger.error(result["message"])
-            return JsonResponse({"error": result["message"]}, status=500)
-    except Exception as e:
-        logger.error(LogMessages.DELETE_ERROR.format(str(e)))
-        return JsonResponse({"error": str(e)}, status=500)
+            return Response(
+                {"success": True, "deleted": result}, status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.error(LogMessages.DELETE_ERROR.format(str(e)))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class MapStatisticsAPIView(APIView):
+    """API endpoint for retrieving map statistics."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.query_service = MapQueryService()
+
+    def get(self, request):
+        """Get statistical information about the map."""
+        try:
+            stats = self.query_service.get_map_statistics()
+            return Response({"success": True, "statistics": stats}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(str(e))
+            return Response(
+                {"success": False, "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

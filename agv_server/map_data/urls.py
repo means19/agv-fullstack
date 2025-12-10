@@ -1,14 +1,24 @@
 from django.urls import path
 from .views import (
-    import_connections,
-    import_directions,
-    get_map_data,
-    delete_all_map_data,
+    ImportConnectionsAPIView,
+    ImportDirectionsAPIView,
+    MapDataAPIView,
+    DeleteMapDataAPIView,
+    MapStatisticsAPIView,
 )
 
 urlpatterns = [
-    path("import-connections/", import_connections, name="import-connections"),
-    path("import-directions/", import_directions, name="import-directions"),
-    path("get/", get_map_data, name="get-map-data"),
-    path("delete/", delete_all_map_data, name="delete-all-map-data"),
+    path(
+        "import-connections/",
+        ImportConnectionsAPIView.as_view(),
+        name="import-connections",
+    ),
+    path(
+        "import-directions/",
+        ImportDirectionsAPIView.as_view(),
+        name="import-directions",
+    ),
+    path("get/", MapDataAPIView.as_view(), name="get-map-data"),
+    path("delete/", DeleteMapDataAPIView.as_view(), name="delete-all-map-data"),
+    path("statistics/", MapStatisticsAPIView.as_view(), name="map-statistics"),
 ]
